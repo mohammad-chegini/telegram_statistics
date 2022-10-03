@@ -1,11 +1,13 @@
 import json
 import re
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Union
 
 import arabic_reshaper
 import demoji
-from hazm import Normalizer, word_tokenize
+import seaborn as sns
+from hazm import Normalizer, sent_tokenize, word_tokenize
 from loguru import logger
 from src.data import DATA_DIR
 from wordcloud import WordCloud
@@ -29,8 +31,8 @@ class Chat_Statistics:
         # load stop words
         logger.info(f" loading stop words from {DATA_DIR / 'stopwords.txt'} ")
         stop_words = open(DATA_DIR / 'stopwords.txt').readlines()
-        stop_words = list(map(str.strip,stop_words))
-        self.stop_words=list(map(self.normalizer.normalize,stop_words))
+        stop_words = map(str.strip,stop_words)
+        self.stop_words=set(map(self.normalizer.normalize,stop_words))
 
     # delete emoji
     def de_emojify(self, text):
@@ -41,6 +43,48 @@ class Chat_Statistics:
         regrex_pattern = re.compile(pattern = "[\u2069\u2066]+", flags = re.UNICODE)
         text = regrex_pattern.sub(r'', text)
         return demoji.replace(text, " ")
+
+    @staticmethod
+    def rebuild_msg(sub_messages):
+        msg_text = ''
+        for sub_msg in sub_messages:
+            if isinstance(sub_msg,str):
+                msg_text += sub_msg
+        return msg_text
+
+
+
+
+    def get_top_users(self,top_n: int = 10):
+        """Generating top users from telegram chat
+        """        
+        
+        is_question = defaultdict(bool)
+        for msg in self.chat_data['messages']:
+            if not isinstance(msg['text'], str):
+                msg['text'] = self.rebuild_msg(msg['text'])
+        
+            sentences = sent_tokenize(msg['text'])
+            for sentence in sentences:
+                if ('?' not in sentence) and ('؟' not in sentence):
+                    continue
+        
+                is_question[msg['id']] = True
+                break
+
+        logger.info(" Genetaing top users...")
+
+        users=[]
+        for msg in self.chat_data['messages']:
+            if not msg.get('reply_to_message_id'):
+                continue
+        
+            if is_question[msg['reply_to_message_id']] is False:
+                continue
+        
+            users.append(msg['from'])
+
+        return dict(Counter(users).most_common(top_n))
 
 
 
@@ -82,5 +126,8 @@ class Chat_Statistics:
 if __name__ == '__main__':
     chat_stats=Chat_Statistics(chat_json = DATA_DIR / 'chat.json')
     chat_stats.generate_word_cloud(output_dir= DATA_DIR)
-
+    top_users = chat_stats.get_top_users(top_n=10)
+    
+    
+    print(top_users)
     print('Done !')
